@@ -32,6 +32,7 @@ def send_email():
     Email: {data.get('email')}
     Website: {data.get('website')}
     Message: {data.get('message')}
+    APIs: {data.get('apis')}
     """
     try:
         mail.send(msg)
