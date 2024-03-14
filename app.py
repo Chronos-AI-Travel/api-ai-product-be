@@ -6,14 +6,16 @@ from flask_mail import Mail, Message
 from flask_cors import CORS
 import requests
 from firebase_admin import credentials, firestore, initialize_app
-import openai
+from openai import OpenAI
 import config
+
+client = OpenAI(api_key=config.OPEN_AI_KEY)
 
 app = Flask(__name__)
 CORS(app)
 
 # OpenAI key
-openai.api_key = config.OPEN_AI_KEY
+
 
 # Apply configurations from config.py
 app.config.update(config.MAIL_CONFIG)
@@ -41,6 +43,7 @@ def send_email():
         sender="joshsparkes6@gmail.com",
         recipients=["joshsparkes6@gmail.com", "nick_castrioty@hotmail.com"],
     )
+
     msg.body = f"""
     Name: {data.get('firstName')} {data.get('surname')}
     Company: {data.get('companyName')}
@@ -48,6 +51,34 @@ def send_email():
     Website: {data.get('website')}
     Message: {data.get('message')}
     APIs: {data.get('apis')}
+    """
+
+    try:
+        mail.send(msg)
+    except Exception as e:
+        print(f"Failed to send email: {e}")
+        return jsonify({"message": "Failed to send email", "error": str(e)}), 500
+
+    return jsonify({"message": "Email sent successfully"}), 200
+
+
+@app.route("/provider_request_email", methods=["POST"])
+def provider_request_email():
+    """Send an email to Nick and Josh when provider request is filled in"""
+    data = request.json
+    msg = Message(
+        "Contact Form Submission from Cronos",
+        sender="joshsparkes6@gmail.com",
+        recipients=["joshsparkes6@gmail.com", "nick_castrioty@hotmail.com"],
+    )
+    msg.body = f"""
+    Name: {data.get('fullName')}
+    Company: {data.get('companyName')}
+    Email: {data.get('workEmail')}
+    Website: {data.get('companyURL')}
+    API Integration: {data.get('apiIntegration')}
+    Requirements: {data.get('requirements')}
+    API Documentation URL: {data.get('apiDocumentationURL')}
     """
     try:
         mail.send(msg)
@@ -123,7 +154,7 @@ def process_files():
         jsonify(
             {
                 "message": "Files processed successfully",
-                "fileContents": modified_contents,
+                "modifiedContents": modified_contents,
             }
         ),
         200,
@@ -132,22 +163,44 @@ def process_files():
 
 def modify_content_with_openai(original_content):
     """Process content with OpenAI."""
+    prompt = f"Adjust the following content so that in your response it says 'This content has been updated by AI' then follow with the content:\n\n{original_content}"
     try:
-        response = openai.Completion.create(
-            model="text-davinci-003",  # Use the latest available model
-            prompt=f"Add this text to the top of the following content - This content has been modified by AI!\n\n{original_content}",
-            temperature=0.7,
-            max_tokens=1024,
-            top_p=1.0,
-            frequency_penalty=0.0,
-            presence_penalty=0.0,
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "user", "content": prompt},
+            ],
         )
-        modified_content = response.choices[0].text.strip()
-        print("Modified Content:", modified_content)
-        return modified_content
+        if response.choices:
+            modified_content = response.choices[0].message.content
+            return modified_content
+        else:
+            return "Modification failed."
     except Exception as e:
-        print("Error calling OpenAI:", e)
-        return None
+        print(f"Error calling OpenAI: {e}")
+        return "Failed to modify content with OpenAI."
+
+
+@app.route("/api/create-branch-and-commit", methods=["POST"])
+def create_branch_and_commit():
+    """Creating a new branch with updated content"""
+    data = request.json
+    user_uid = data.get("userUid")
+    branch_name = data.get("branchName")
+    file_contents = data.get("fileContents")
+    file_path = data.get("filePath")
+
+    # Steps:
+    # 1. Authenticate with GitHub using the user's access token.
+    # 2. Get the latest commit SHA of the base branch (e.g., main).
+    # 3. Create a new branch with the given name.
+    # 4. Create or update the file in the new branch with the modified contents.
+
+    # This is a complex operation that involves multiple GitHub API requests.
+    # You'll need to implement the logic for each step, handling authentication,
+    # error checking, and the specific GitHub API requests.
+
+    return jsonify({"message": "Branch and file created successfully"}), 200
 
 
 if __name__ == "__main__":
