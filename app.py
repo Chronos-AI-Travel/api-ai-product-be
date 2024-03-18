@@ -88,9 +88,28 @@ def provider_request_email():
 
     return jsonify({"message": "Email sent successfully"}), 200
 
+@app.route("/fetch_file_contents", methods=["POST"])
+def fetch_file_contents():
+    data = request.json
+    file_urls = data.get("fileUrls", [])
+    user_uid = data.get("userUid")
 
-def fetch_file_contents(github_token, file_urls):
-    """Fetching the contents of the defined repo files using GitHub API URLs"""
+    if not file_urls or not user_uid:
+        return jsonify({"error": "Missing data"}), 400
+
+    # Fetch the GitHub access token from Firestore
+    try:
+        token_doc = db.collection("access_tokens").document(user_uid).get()
+        if token_doc.exists:
+            github_token = token_doc.to_dict().get("githubAccessToken")
+            if not github_token:
+                return jsonify({"error": "GitHub token not found"}), 404
+        else:
+            return jsonify({"error": "User not found"}), 404
+    except Exception as e:
+        return jsonify({"error": "Failed to fetch user data", "details": str(e)}), 500
+
+    # Use the fetched GitHub token to retrieve file contents
     headers = {"Authorization": f"token {github_token}"}
     file_contents = []
 
@@ -98,24 +117,19 @@ def fetch_file_contents(github_token, file_urls):
         response = requests.get(url, headers=headers)
         if response.status_code == 200:
             response_json = response.json()
-            # Check if "content" key exists in the JSON response
             if "content" in response_json:
                 content_data = response_json["content"]
-                # Decode the base64 encoded content
                 decoded_content = base64.b64decode(content_data).decode("utf-8")
-                file_contents.append(decoded_content)
-                print(f"Content for {url}:")
-                print(decoded_content)
+                file_contents.append({"url": url, "content": decoded_content})
             else:
-                # Handle cases where "content" key is missing
                 print(f"'content' key not found in the response for URL: {url}")
         else:
-            # Log detailed error information for failed requests
             print(f"Failed to fetch {url}, Status Code: {response.status_code}")
             if response.text:
                 print("Error details:", response.text)
 
-    return file_contents
+    # Return the list of file contents as a JSON response
+    return jsonify(file_contents)
 
 
 @app.route("/api/process-files", methods=["POST"])
@@ -201,6 +215,26 @@ def create_branch_and_commit():
     # error checking, and the specific GitHub API requests.
 
     return jsonify({"message": "Branch and file created successfully"}), 200
+
+
+@app.route("/api/query-agent", methods=["POST"])
+def query_agent():
+    """agent communication endpoint"""
+    user_input = request.json.get("input")
+    # URL of your locally running AutoGPT agent
+    agent_url = "http://localhost:8000"
+
+    # Assuming the agent expects a POST request with 'input' in the JSON body
+    # Adjust this based on your agent's API
+    response = requests.post(agent_url, json={"input": user_input})
+    if response.status_code == 200:
+        # Forward the agent's response back to the frontend
+        return jsonify(response.json())
+    else:
+        return (
+            jsonify({"error": "Failed to get response from the agent"}),
+            response.status_code,
+        )
 
 
 if __name__ == "__main__":
